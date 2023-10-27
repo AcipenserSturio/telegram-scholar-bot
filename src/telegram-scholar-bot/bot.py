@@ -25,29 +25,31 @@ by {authors} in {year}
 <b><a href="{link}">[read full]</a></b>
 """
 
+HELP = """Hello\! I am a bot that lets you search authors and publications on Google Scholar\.
+Try the following commands\:
+`/search_author` "Author Name"
+`/search_pub` "Publication Name"
+"""
+
 
 class Bot():
     def __init__(self, token: str):
         self.app = ApplicationBuilder().token(token).write_timeout(30).build()
-        self.app.add_handler(CommandHandler("start", self.start))
+        self.app.add_handler(CommandHandler("help", self.help_message))
         self.app.add_handler(CommandHandler("search_author", self.search_author))
         self.app.add_handler(CommandHandler("search_pub", self.search_pub))
 
     @staticmethod
-    async def start(
+    async def help_message(
             update: Update,
             context: ContextTypes.DEFAULT_TYPE,
         ):
-
-        print(update.effective_chat)
-        print(update.effective_user)
-        print(update.effective_message)
-        print(update.effective_message.text)
-
-        await context.bot.send_message(
+        message = await context.bot.send_message(
             chat_id = update.effective_chat.id,
-            text = "I'm a bot!",
+            parse_mode = "MarkdownV2",
+            text = HELP,
         )
+
 
     @staticmethod
     async def search_author(
