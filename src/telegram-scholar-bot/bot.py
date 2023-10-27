@@ -1,8 +1,13 @@
-from telegram import Update  # класс для обновления в чате
+from telegram import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Update,
+)
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
     ContextTypes,
+    CallbackQueryHandler,
 )
 
 from scholarly import scholarly
@@ -35,72 +40,128 @@ Try the following commands\:
 class Bot():
     def __init__(self, token: str):
         self.app = ApplicationBuilder().token(token).write_timeout(30).build()
-        self.app.add_handler(CommandHandler("help", self.help_message))
-        self.app.add_handler(CommandHandler("search_author", self.search_author))
-        self.app.add_handler(CommandHandler("search_pub", self.search_pub))
+        self.app.add_handler(CommandHandler("help", help_message))
+        self.app.add_handler(CommandHandler("search_author", search_author))
+        self.app.add_handler(CommandHandler("search_pub", search_pub))
+        self.app.add_handler(CallbackQueryHandler(button))
 
-    @staticmethod
-    async def help_message(
-            update: Update,
-            context: ContextTypes.DEFAULT_TYPE,
-        ):
-        message = await context.bot.send_message(
-            chat_id = update.effective_chat.id,
-            parse_mode = "MarkdownV2",
-            text = HELP,
+
+async def help_message(
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+    message = await context.bot.send_message(
+        chat_id = update.effective_chat.id,
+        parse_mode = "MarkdownV2",
+        text = HELP,
+    )
+
+
+async def search_author(
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+    first_author, message = await common_interaction(
+        update,
+        context,
+        " ".join(context.args),
+        "Please wait as I search for <i>\"{}\"</i>...",
+        "No author found by searching \"{}\"",
+        scholarly.search_author,
+    )
+    await message.edit_text(
+        parse_mode = "html",
+        text = format_author(first_author),
+    )
+
+
+async def search_pub(
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+    ):
+    index = 0
+    first_pub, message = await common_interaction_new(
+        update,
+        context,
+        query := " ".join(context.args),
+        "Please wait as I search for <i>\"{}\"</i>...",
+        "No publications found by searching \"{}\"",
+        scholarly.search_pubs,
+        index,
+    )
+    await message.edit_text(
+        parse_mode = "html",
+        disable_web_page_preview=True,
+        text = format_publication(first_pub),
+        reply_markup = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(f"Previous", callback_data=f"{query}|{index-1}"),
+                    InlineKeyboardButton(f"Next", callback_data=f"{query}|{index+1}"),
+                ],
+            ]
         )
+    )
 
+async def button(
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
 
-    @staticmethod
-    async def search_author(
-            update: Update,
-            context: ContextTypes.DEFAULT_TYPE,
-        ):
-        first_author, message = await common_interaction(
-            update,
-            context,
-            " ".join(context.args),
-            "Please wait as I search for <i>\"{}\"</i>...",
-            "No author found by searching \"{}\"",
-            scholarly.search_author,
+    query, index = update.callback_query.data.split("|")
+    index = int(index)
+
+    pub, _ = await common_interaction_new(
+        update,
+        context,
+        query,
+        "Please wait as I search for <i>\"{}\"</i>...",
+        "No publications found by searching \"{}\"",
+        scholarly.search_pubs,
+        index,
+    )
+
+    await update.callback_query.edit_message_text(
+        parse_mode = "html",
+        disable_web_page_preview=True,
+        text = format_publication(pub),
+        reply_markup = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(f"Previous", callback_data=f"{query}|{index-1}"),
+                    InlineKeyboardButton(f"Next", callback_data=f"{query}|{index+1}"),
+                ],
+            ]
         )
+    )
+
+async def common_interaction_new( # publications
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        query: str,
+        wait_message: str,
+        fail_message: str,
+        api: callable,
+        index: int,
+    ):
+    # Unites common user handling of "authors" and "publications"
+    # Useful to catch weird behaviour in both
+    # Returns a response (dict) and a message (to be edited)
+
+    message = await send_wait_message(update, context, query, wait_message)
+    if await is_empty_query(message, query, fail_message):
+        return
+    response = api(query, start_index=index)
+    # Catch empty responses
+    if not (response := peek(response)):
         await message.edit_text(
-            parse_mode = "html",
-            text = AUTHOR.format(
-                name = first_author["name"],
-                affiliation = first_author["affiliation"],
-                email = first_author["email_domain"],
-                cited = first_author["citedby"],
-                image = first_author["url_picture"],
-            ),
+            text = fail_message.format(query)
         )
+        return
+    return response[0], message
 
-    @staticmethod
-    async def search_pub(
-            update: Update,
-            context: ContextTypes.DEFAULT_TYPE,
-        ):
-        first_pub, message = await common_interaction(
-            update,
-            context,
-            " ".join(context.args),
-            "Please wait as I search for <i>\"{}\"</i>...",
-            "No publications found by searching \"{}\"",
-            scholarly.search_pubs,
-        )
-        await message.edit_text(
-            parse_mode = "html",
-            disable_web_page_preview=True,
-            text = PUB.format(
-                link = first_pub["pub_url"],
-                name = first_pub["bib"]["title"],
-                authors = "; ".join(first_pub["bib"]["author"]),
-                year = first_pub["bib"]["pub_year"],
-                abstract = first_pub["bib"]["abstract"],
-            ),
-        )
 
-async def common_interaction(
+async def common_interaction( # author
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
         query: str,
@@ -112,28 +173,59 @@ async def common_interaction(
     # Useful to catch weird behaviour in both
     # Returns a response (dict) and a message (to be edited)
 
-    message = await context.bot.send_message(
-        chat_id = update.effective_chat.id,
-        parse_mode = "html",
-        text = wait_message.format(query),
-    )
-
-    # Catch empty queries
-    if not len(query.strip()):
-        await message.edit_text(
-            text = fail_message.format(query)
-        )
+    message = await send_wait_message(update, context, query, wait_message)
+    if await is_empty_query(message, query, fail_message):
         return
-
     response = api(query)
-
     # Catch empty responses
     if not (response := peek(response)):
         await message.edit_text(
             text = fail_message.format(query)
         )
         return
+    return response[0], message
 
-    first_response = response[0]
-    print(first_response)
-    return first_response, message
+
+async def send_wait_message(
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        query: str,
+        wait_message: str,
+    ):
+    return await context.bot.send_message(
+        chat_id = update.effective_chat.id,
+        parse_mode = "html",
+        text = wait_message.format(query),
+    )
+
+async def is_empty_query(
+        message,
+        query: str,
+        fail_message: str,
+    ):
+
+    # Catch empty queries
+    if not len(query.strip()):
+        await message.edit_text(
+            text = fail_message.format(query)
+        )
+        return True
+
+
+def format_publication(response: dict) -> str:
+    return PUB.format(
+            link = response["pub_url"],
+            name = response["bib"]["title"],
+            authors = "; ".join(response["bib"]["author"]),
+            year = response["bib"]["pub_year"],
+            abstract = response["bib"]["abstract"],
+        )
+
+def format_author(response: dict) -> str:
+    return AUTHOR.format(
+            name = response["name"],
+            affiliation = response["affiliation"],
+            email = response["email_domain"],
+            cited = response["citedby"],
+            image = response["url_picture"],
+        )
