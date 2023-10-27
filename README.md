@@ -10,6 +10,8 @@ This is a Telegram bot that acts as an alternate frontend to Google Scholar.
 
 ## Installation and usage
 
+Add a bot token in `sample.env` and rename to `.env`.
+
 `pdm install`
 
 `pdm run start`
