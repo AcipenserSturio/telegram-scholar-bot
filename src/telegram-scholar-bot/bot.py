@@ -12,7 +12,7 @@ from telegram.ext import (
 
 from scholarly import scholarly
 
-from .utils import peek
+from .utils import first
 
 
 AUTHOR = """<b>{name}</b>
@@ -61,17 +61,18 @@ async def search_author(
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
     ):
-    first_author, message = await common_interaction(
-        update,
-        context,
-        " ".join(context.args),
-        "Please wait as I search for <i>\"{}\"</i>...",
-        "No author found by searching \"{}\"",
-        scholarly.search_author,
-    )
+    query = " ".join(context.args)
+    message = await send_wait_message(update, context, f"Please wait as I search for <i>\"{query}\"</i>...")
+    if await is_empty_query(message, query, "This is an empty query. Try adding text!"):
+        return
+    response = scholarly.search_author(query)
+    # Catch empty responses
+    if not (response := first(response)):
+        await message.edit_text(f"No author found by searching \"{query}\"")
+        return
     await message.edit_text(
         parse_mode = "html",
-        text = format_author(first_author),
+        text = format_author(response),
     )
 
 
@@ -80,27 +81,20 @@ async def search_pub(
         context: ContextTypes.DEFAULT_TYPE,
     ):
     index = 0
-    first_pub, message = await common_interaction_new(
-        update,
-        context,
-        query := " ".join(context.args),
-        "Please wait as I search for <i>\"{}\"</i>...",
-        "No publications found by searching \"{}\"",
-        scholarly.search_pubs,
-        index,
-    )
+    query = " ".join(context.args)
+    message = await send_wait_message(update, context, f"Please wait as I search for <i>\"{query}\"</i>...",)
+    if await is_empty_query(message, query, "This is an empty query. Try adding text!"):
+        return
+    response = scholarly.search_pubs(query, start_index=index)
+    # Catch empty responses
+    if not (response := first(response)):
+        await message.edit_text(f"No publications found by searching \"{query}\"")
+        return
     await message.edit_text(
         parse_mode = "html",
         disable_web_page_preview=True,
-        text = format_publication(first_pub),
-        reply_markup = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(f"Previous", callback_data=f"{query}|{index-1}"),
-                    InlineKeyboardButton(f"Next", callback_data=f"{query}|{index+1}"),
-                ],
-            ]
-        )
+        text = format_publication(response),
+        reply_markup = get_keyboard(query, index),
     )
 
 async def button(
@@ -110,93 +104,31 @@ async def button(
 
     query, index = update.callback_query.data.split("|")
     index = int(index)
-
-    pub, _ = await common_interaction_new(
-        update,
-        context,
-        query,
-        "Please wait as I search for <i>\"{}\"</i>...",
-        "No publications found by searching \"{}\"",
-        scholarly.search_pubs,
-        index,
-    )
-
+    print(query, index)
+    response = scholarly.search_pubs(query, start_index=index)
+    # Catch empty responses
+    if not (response := first(response)):
+        await message.edit_text(f"No publications found by searching \"{query}\"")
+        return
     await update.callback_query.edit_message_text(
         parse_mode = "html",
         disable_web_page_preview=True,
-        text = format_publication(pub),
-        reply_markup = InlineKeyboardMarkup(
-            [
-                [
-                    InlineKeyboardButton(f"Previous", callback_data=f"{query}|{index-1}"),
-                    InlineKeyboardButton(f"Next", callback_data=f"{query}|{index+1}"),
-                ],
-            ]
-        )
+        text = format_publication(response),
+        reply_markup = get_keyboard(query, index),
     )
-
-async def common_interaction_new( # publications
-        update: Update,
-        context: ContextTypes.DEFAULT_TYPE,
-        query: str,
-        wait_message: str,
-        fail_message: str,
-        api: callable,
-        index: int,
-    ):
-    # Unites common user handling of "authors" and "publications"
-    # Useful to catch weird behaviour in both
-    # Returns a response (dict) and a message (to be edited)
-
-    message = await send_wait_message(update, context, query, wait_message)
-    if await is_empty_query(message, query, fail_message):
-        return
-    response = api(query, start_index=index)
-    # Catch empty responses
-    if not (response := peek(response)):
-        await message.edit_text(
-            text = fail_message.format(query)
-        )
-        return
-    return response[0], message
-
-
-async def common_interaction( # author
-        update: Update,
-        context: ContextTypes.DEFAULT_TYPE,
-        query: str,
-        wait_message: str,
-        fail_message: str,
-        api: callable,
-    ):
-    # Unites common user handling of "authors" and "publications"
-    # Useful to catch weird behaviour in both
-    # Returns a response (dict) and a message (to be edited)
-
-    message = await send_wait_message(update, context, query, wait_message)
-    if await is_empty_query(message, query, fail_message):
-        return
-    response = api(query)
-    # Catch empty responses
-    if not (response := peek(response)):
-        await message.edit_text(
-            text = fail_message.format(query)
-        )
-        return
-    return response[0], message
 
 
 async def send_wait_message(
         update: Update,
         context: ContextTypes.DEFAULT_TYPE,
-        query: str,
         wait_message: str,
     ):
     return await context.bot.send_message(
         chat_id = update.effective_chat.id,
         parse_mode = "html",
-        text = wait_message.format(query),
+        text = wait_message,
     )
+
 
 async def is_empty_query(
         message,
@@ -206,9 +138,7 @@ async def is_empty_query(
 
     # Catch empty queries
     if not len(query.strip()):
-        await message.edit_text(
-            text = fail_message.format(query)
-        )
+        await message.edit_text(fail_message)
         return True
 
 
@@ -229,3 +159,13 @@ def format_author(response: dict) -> str:
             cited = response["citedby"],
             image = response["url_picture"],
         )
+
+def get_keyboard(query: str, index: int):
+    if not index:
+        return InlineKeyboardMarkup([[
+            InlineKeyboardButton(f"Next", callback_data=f"{query}|{index+1}"),
+        ]])
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton(f"Previous", callback_data=f"{query}|{index-1}"),
+        InlineKeyboardButton(f"Next", callback_data=f"{query}|{index+1}"),
+    ]])

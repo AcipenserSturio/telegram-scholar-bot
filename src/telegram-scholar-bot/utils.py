@@ -1,10 +1,9 @@
 import itertools
 
-def peek(iterable):
-    # Check if iterable contains items,
-    # but put the item back after checking
+def first(iterable):
+    # Try to get the first item from iterable. Suppress errors.
     try:
         first = next(iterable)
     except StopIteration:
         return None
-    return first, itertools.chain([first], iterable)
+    return first
