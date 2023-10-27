@@ -1,0 +1,12 @@
+[project]
+name = "telegram-scholar-bot"
+version = "1"
+description = "Telegram bot which acts as an alternate frontend to Google Scholar."
+authors = [
+    {name = "AcipenserSturio", email = "AcipenserSturio@users.noreply.github.com"},
+]
+dependencies = []
+requires-python = ">=3.11"
+readme = "README.md"
+license = {text = "GPL-3.0"}
+
