@@ -1,12 +1,18 @@
 [project]
 name = "telegram-scholar-bot"
-version = "1"
+version = "0.1.0"
 description = "Telegram bot which acts as an alternate frontend to Google Scholar."
 authors = [
     {name = "AcipenserSturio", email = "AcipenserSturio@users.noreply.github.com"},
 ]
-dependencies = []
+dependencies = [
+    "python-telegram-bot>=20.6",
+    "python-dotenv>=1.0.0",
+]
 requires-python = ">=3.11"
 readme = "README.md"
 license = {text = "GPL-3.0"}
 
+[tool.pdm.scripts]
+start.cmd = "python -m telegram-scholar-bot"
+start.env_file = ".env"
