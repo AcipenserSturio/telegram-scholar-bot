@@ -1,5 +1,5 @@
 # telegram-scholar-bot
-this is a scholar bot
+
 This is a Telegram bot that acts as an alternate frontend to Google Scholar.
 
 ## Requirements
